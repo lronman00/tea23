@@ -1,131 +1,103 @@
 #include <fmt/chrono.h>
 #include <fmt/format.h>
 #include <iostream>
-#include <string>
 
-enum class GaragenState {
-    ZU,
-    AUF,
-    HOCHFAHREND,
-    RUNTERFAHREND,
-    GESTOPPT
-};
-
-class Garagentor {
-private:
-    GaragenState currentState;
-    bool endschalterOben;
-    bool endschalterUnten;
-    bool tasteGedrueckt;
-
-public:
-    Garagentor() : currentState(GaragenState::ZU), 
-                   endschalterOben(false), 
-                   endschalterUnten(true),
-                   tasteGedrueckt(false) {}
-
-    void setEndschalterOben(bool status) {
-        endschalterOben = status;
-        updateState();
-    }
-
-    void setEndschalterUnten(bool status) {
-        endschalterUnten = status;
-        updateState();
-    }
-
-    void setTasteGedrueckt(bool gedrueckt) {
-        tasteGedrueckt = gedrueckt;
-        if (gedrueckt) {
-            handleTaste();
-        }
-    }
-
-private:
-    void handleTaste() {
-        switch (currentState) {
-            case GaragenState::ZU:
-                fmt::print("Taste gedrückt - Fahre hoch\n");
-                currentState = GaragenState::HOCHFAHREND;
-                break;
-                
-            case GaragenState::AUF:
-                fmt::print("Taste gedrückt - Fahre runter\n");
-                currentState = GaragenState::RUNTERFAHREND;
-                break;
-                
-            case GaragenState::HOCHFAHREND:
-            case GaragenState::RUNTERFAHREND:
-                fmt::print("Taste gedrückt - Stop\n");
-                currentState = GaragenState::GESTOPPT;
-                break;
-                
-            case GaragenState::GESTOPPT:
-                fmt::print("Taste gedrückt - Fahre hoch\n");
-                currentState = GaragenState::HOCHFAHREND;
-                break;
-        }
-    }
-
-    void updateState() {
-        if (currentState == GaragenState::HOCHFAHREND && endschalterOben) {
-            fmt::print("Endschalter oben erreicht - Tor offen\n");
-            currentState = GaragenState::AUF;
-        }
-        else if (currentState == GaragenState::RUNTERFAHREND && endschalterUnten) {
-            fmt::print("Endschalter unten erreicht - Tor zu\n");
-            currentState = GaragenState::ZU;
-        }
-    }
-
-public:
-    void printStatus() {
-        std::string stateStr;
-        switch (currentState) {
-            case GaragenState::ZU: stateStr = "ZU"; break;
-            case GaragenState::AUF: stateStr = "AUF"; break;
-            case GaragenState::HOCHFAHREND: stateStr = "HOCHFAHREND"; break;
-            case GaragenState::RUNTERFAHREND: stateStr = "RUNTERFAHREND"; break;
-            case GaragenState::GESTOPPT: stateStr = "GESTOPPT"; break;
-        }
-        
-        fmt::print("Status: {}, Endschalter Oben: {}, Unten: {}\n", 
-                   stateStr, endschalterOben, endschalterUnten);
-    }
-};
-
-auto main(int argc, char** argv) -> int
+enum class State
 {
-    fmt::print("Garagentor Steuerung - {}\n", argv[0]);
-    
-    Garagentor tor;
-    
-    // Testablauf
-    tor.printStatus();
-    
-    // Taste drücken um hochzufahren
-    tor.setTasteGedrueckt(true);
-    tor.printStatus();
-    
-    // Endschalter oben erreicht
-    tor.setEndschalterOben(true);
-    tor.printStatus();
-    
-    // Taste drücken um runterzufahren
-    tor.setTasteGedrueckt(true);
-    tor.printStatus();
-    
-    // Endschalter unten erreicht
-    tor.setEndschalterUnten(true);
-    tor.printStatus();
-    
-    // Während der Fahrt stoppen
-    tor.setTasteGedrueckt(true); // Hochfahren
-    tor.printStatus();
-    tor.setTasteGedrueckt(true); // Stoppen
-    tor.printStatus();
-    tor.setTasteGedrueckt(true); // Weiterfahren
-    tor.printStatus();
+    Closed,          // Garagentor zu
+    Open,            // Garagentor offen
+    MovingUp,        // Fahre hoch
+    MovingDown,      // Fahre runter
+    StoppedUp,       // Stop auf dem Weg nach oben
+    StoppedDown      // Stop auf dem Weg nach unten
+};
 
+const char* to_string(State s)
+{
+    switch (s)
+    {
+    case State::Closed:      return "Garagentor zu";
+    case State::Open:        return "Garagentor offen";
+    case State::MovingUp:    return "Fahre hoch";
+    case State::MovingDown:  return "Fahre runter";
+    case State::StoppedUp:   return "Stop auf dem Weg nach oben";
+    case State::StoppedDown: return "Stop auf dem Weg nach unten";
+    }
+    return "Unbekannt";
+}
+
+// Übergangslogik des Automaten
+void handle_event(State& state, bool button, bool limitTop, bool limitBottom)
+{
+    switch (state)
+    {
+    case State::Open:
+        if (button)
+            state = State::MovingDown;
+        break;
+
+    case State::Closed:
+        if (button)
+            state = State::MovingUp;
+        break;
+
+    case State::MovingDown:
+        if (limitBottom)               // Endschalter unten
+            state = State::Closed;
+        else if (button)               // Taste während der Fahrt
+            state = State::StoppedDown;
+        break;
+
+    case State::MovingUp:
+        if (limitTop)                  // Endschalter oben
+            state = State::Open;
+        else if (button)               // Taste während der Fahrt
+            state = State::StoppedUp;
+        break;
+
+    case State::StoppedDown:
+        if (button)                    // Taste: Richtung umkehren
+            state = State::MovingUp;
+        break;
+
+    case State::StoppedUp:
+        if (button)                    // Taste: Richtung umkehren
+            state = State::MovingDown;
+        break;
+    }
+}
+
+auto main(int /*argc*/, char** argv) -> int
+{
+    fmt::print("Garage Controller gestartet ({})\n", argv[0]);
+
+    State state = State::Closed;   // Startzustand: Tor zu
+
+    fmt::print("Befehle:\n");
+    fmt::print("  t = Taste druecken\n");
+    fmt::print("  o = Endschalter oben wird betaetigt\n");
+    fmt::print("  u = Endschalter unten wird betaetigt\n");
+    fmt::print("  q = Programm beenden\n\n");
+
+    char cmd{};
+    while (true)
+    {
+        fmt::print("\nAktueller Zustand: {}\n", to_string(state));
+        fmt::print("Eingabe [t/o/u/q]: ");
+        std::cin >> cmd;
+
+        if (!std::cin)
+            break;
+        if (cmd == 'q')
+            break;
+
+        bool button      = (cmd == 't');
+        bool limitTop    = (cmd == 'o');
+        bool limitBottom = (cmd == 'u');
+
+        handle_event(state, button, limitTop, limitBottom);
+    }
+
+    fmt::print("\nProgramm beendet.\n");
     return 0;
 }
